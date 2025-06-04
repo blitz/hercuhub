@@ -1,5 +1,47 @@
-use octocrab::{models::IssueState, Octocrab};
+use octocrab::{
+    models::{pulls::PullRequest, IssueState},
+    params::repos::Reference,
+    repos::RepoHandler,
+    Octocrab,
+};
 use std::env;
+
+fn log_pr(pr: &PullRequest) {
+    let state_emoji = match pr.state {
+        Some(IssueState::Open) => "🟢",
+
+        Some(IssueState::Closed) => "🔴",
+        _ => "⚪",
+    };
+
+    println!(
+        "{} #{} - {} ({})",
+        state_emoji,
+        pr.number,
+        pr.title
+            .as_ref()
+            .map(|t| t.as_str())
+            .unwrap_or_else(|| "No title"),
+        pr.user
+            .as_ref()
+            .map(|u| u.login.as_str())
+            .unwrap_or_else(|| "???")
+    );
+}
+
+async fn sync_open_pr(
+    repo: &RepoHandler<'_>,
+    pr: &PullRequest,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(pr.state, Some(IssueState::Open));
+
+    let branch_name = format!("pr-{}", pr.number);
+    let pr_sha = &pr.head.sha;
+    println!("Updating {branch_name} to point to {pr_sha}...");
+    repo.create_ref(&Reference::Branch(branch_name), pr_sha)
+        .await?;
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,41 +66,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send()
         .await?;
 
-    let prs_with_state: Vec<_> = pulls.items.iter().filter(|pr| pr.state.is_some()).collect();
-    println!(
-        "\nFound {} pull requests with state:\n",
-        prs_with_state.len()
-    );
+    let repo = octocrab.repos(&owner, &repo);
 
     // List all pull requests that have a state
     for pr in pulls.items {
-        if let Some(state) = pr.state {
-            let state_emoji = match state {
-                IssueState::Open => "🟢",
+        log_pr(&pr);
 
-                IssueState::Closed => "🔴",
-                _ => "?",
-            };
+        match pr.state {
+            Some(IssueState::Open) => sync_open_pr(&repo, &pr).await?,
 
-            println!(
-                "{} #{} - {} ({})",
-                state_emoji,
-                pr.number,
-                pr.title.unwrap_or_else(|| "No title".to_string()),
-                pr.user.unwrap().login
-            );
-
-            if let Some(body) = &pr.body {
-                let preview = if body.len() > 100 {
-                    format!("{}...", &body[..100])
-                } else {
-                    body.clone()
-                };
-                println!("   Description: {}", preview);
-            }
-
-            println!("   URL: {:?}", pr.html_url);
-            println!();
+            Some(unknown) => todo!("unknown state: {:?}", unknown),
+            None => todo!("No state?"),
         }
     }
 
