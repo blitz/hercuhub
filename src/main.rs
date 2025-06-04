@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use octocrab::{
     models::{pulls::PullRequest, IssueState},
     params::repos::Reference,
@@ -32,10 +33,7 @@ fn log_pr(pr: &PullRequest) {
 
 /// Create a local branch that references the PR. This will trigger
 /// Hercules CI to execute tests..
-async fn sync_open_pr(
-    repo: &RepoHandler<'_>,
-    pr: &PullRequest,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn sync_open_pr(repo: &RepoHandler<'_>, pr: &PullRequest) -> Result<()> {
     assert_eq!(pr.state, Some(IssueState::Open));
 
     let branch_name = format!("pr-{}", pr.number);
@@ -59,10 +57,7 @@ async fn sync_open_pr(
 }
 
 /// Clean up old branches from closed pull requests.
-async fn sync_closed_pr(
-    repo: &RepoHandler<'_>,
-    pr: &PullRequest,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn sync_closed_pr(repo: &RepoHandler<'_>, pr: &PullRequest) -> Result<()> {
     assert_eq!(pr.state, Some(IssueState::Closed));
 
     let branch_name = format!("pr-{}", pr.number);
@@ -77,31 +72,31 @@ async fn sync_closed_pr(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Get environment variables
-    let token = env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN environment variable must be set");
+async fn main() -> Result<()> {
+    let Ok(token) = env::var("GITHUB_TOKEN") else {
+        return Err(anyhow!("GITHUB_TOKEN not set"));
+    };
 
-    let owner = env::var("GITHUB_OWNER").unwrap_or_else(|_| "octocat".to_string()); // Default owner
+    let Ok(owner) = env::var("GITHUB_OWNER") else {
+        return Err(anyhow!("GITHUB_OWNER not set"));
+    };
 
-    let repo = env::var("GITHUB_REPO").unwrap_or_else(|_| "Hello-World".to_string()); // Default repo
+    let Ok(repo) = env::var("GITHUB_REPO") else {
+        return Err(anyhow!("GITHUB_REPO not set"));
+    };
 
-    println!("Fetching pull requests for {}/{}", owner, repo);
-
-    // Create octocrab instance with authentication
     let octocrab = Octocrab::builder().personal_token(token).build()?;
 
-    // Get all pull requests (open by default)
     let pulls = octocrab
         .pulls(&owner, &repo)
         .list()
-        .state(octocrab::params::State::All) // Get both open and closed PRs
+        .state(octocrab::params::State::All)
         .per_page(100) // Adjust as needed
         .send()
         .await?;
 
     let repo = octocrab.repos(&owner, &repo);
 
-    // List all pull requests that have a state
     for pr in pulls.items {
         log_pr(&pr);
 
