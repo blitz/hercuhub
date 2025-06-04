@@ -38,8 +38,16 @@ async fn sync_open_pr(
     let branch_name = format!("pr-{}", pr.number);
     let pr_sha = &pr.head.sha;
     println!("Updating {branch_name} to point to {pr_sha}...");
-    repo.create_ref(&Reference::Branch(branch_name), pr_sha)
-        .await?;
+
+    let branch_ref = Reference::Branch(branch_name);
+
+    // TODO How do we update the ref instead of deleting and recreating it?
+    if repo.get_ref(&branch_ref).await.is_ok() {
+        repo.delete_ref(&branch_ref).await?;
+    }
+
+    repo.create_ref(&branch_ref, pr_sha).await?;
+
     Ok(())
 }
 
