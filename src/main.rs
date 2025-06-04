@@ -1,3 +1,5 @@
+compile_error!("What if I break the build?")
+
 use octocrab::{
     models::{pulls::PullRequest, IssueState},
     params::repos::Reference,
